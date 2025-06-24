@@ -411,8 +411,60 @@ def run_monte_carlo_simulation(assumptions):
             with col_c:
                 avg_year1_revenue = np.mean(mc_results['year1_revenue'])
                 st.metric("Avg Year 1 Revenue", f"${avg_year1_revenue:,.0f}")
+    
+    # Display comprehensive summary statistics
+    if 'mc_results' in st.session_state:
+        mc_results = st.session_state.mc_results
+        
+        st.subheader("📊 Monte Carlo Summary Statistics")
+        st.write("Detailed statistics across all simulations:")
+        
+        # Calculate summary statistics
+        summary_df = model.calculate_monte_carlo_summary_stats(mc_results)
+        
+        # Format the summary table for display
+        display_summary = summary_df.copy()
+        
+        # Format currency columns
+        currency_columns = ['Mean', 'Median', 'Min', 'Max', '10th Percentile', '25th Percentile', '75th Percentile', '90th Percentile', 'Std Dev']
+        for col in currency_columns:
+            if col in display_summary.columns:
+                # Check if the metric is currency (contains $)
+                is_currency = display_summary['Metric'].str.contains('\$').any()
+                if is_currency:
+                    display_summary[col] = display_summary[col].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A")
+                else:
+                    display_summary[col] = display_summary[col].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "N/A")
+        
+        # Display the summary table
+        st.dataframe(display_summary, use_container_width=True)
+        
+        # Add insights section
+        st.subheader("💡 Key Insights")
+        
+        # Calculate some key insights
+        if mc_results.get('final_cash_flow'):
+            final_cf_array = np.array(mc_results['final_cash_flow'])
+            positive_cf_prob = (final_cf_array > 0).mean() * 100
+            negative_cf_prob = (final_cf_array < 0).mean() * 100
             
-            # Create Monte Carlo charts
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Probability of Positive Final Cash Flow", f"{positive_cf_prob:.1f}%")
+            with col2:
+                st.metric("Probability of Negative Final Cash Flow", f"{negative_cf_prob:.1f}%")
+            with col3:
+                if mc_results.get('breakeven_months'):
+                    breakeven_array = np.array(mc_results['breakeven_months'])
+                    early_breakeven_prob = (breakeven_array <= 24).mean() * 100
+                    st.metric("Probability of Breakeven ≤ 24 months", f"{early_breakeven_prob:.1f}%")
+        
+        # Create Monte Carlo charts
+        st.subheader("📈 Monte Carlo Distributions")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
             if mc_results['breakeven_months']:
                 fig_breakeven = px.histogram(
                     x=mc_results['breakeven_months'],
@@ -421,6 +473,29 @@ def run_monte_carlo_simulation(assumptions):
                     nbins=20
                 )
                 st.plotly_chart(fig_breakeven, use_container_width=True)
+            
+            # Final cash flow distribution
+            if mc_results.get('final_cash_flow'):
+                fig_cash_flow = px.histogram(
+                    x=mc_results['final_cash_flow'],
+                    title="Distribution of Final Cash Flow",
+                    labels={'x': 'Final Cash Flow ($)', 'y': 'Frequency'},
+                    nbins=30
+                )
+                fig_cash_flow.add_vline(x=0, line_dash="dash", line_color="red", 
+                                       annotation_text="Breakeven Line")
+                st.plotly_chart(fig_cash_flow, use_container_width=True)
+        
+        with col2:
+            # Final AUA distribution
+            if mc_results.get('final_aua'):
+                fig_aua = px.histogram(
+                    x=mc_results['final_aua'],
+                    title="Distribution of Final AUA",
+                    labels={'x': 'Final AUA ($)', 'y': 'Frequency'},
+                    nbins=30
+                )
+                st.plotly_chart(fig_aua, use_container_width=True)
             
             # Revenue distributions
             fig_revenue = go.Figure()
@@ -444,6 +519,206 @@ def run_monte_carlo_simulation(assumptions):
                 yaxis_title="Revenue ($)"
             )
             st.plotly_chart(fig_revenue, use_container_width=True)
+
+def create_advanced_risk_analysis(assumptions):
+    """Create advanced risk analysis with tornado charts, stress testing, and scenario-based Monte Carlo"""
+    st.subheader("🚨 Advanced Risk Analysis")
+    
+    # Create tabs for different risk analysis types
+    risk_tab1, risk_tab2, risk_tab3, risk_tab4 = st.tabs([
+        "🎯 Risk Metrics", "🌪️ Tornado Chart", "💥 Stress Testing", "📊 Scenario Monte Carlo"
+    ])
+    
+    with risk_tab1:
+        st.write("**Risk Metrics from Monte Carlo Simulation**")
+        if 'mc_results' in st.session_state:
+            mc_results = st.session_state.mc_results
+            risk_metrics = model.calculate_risk_metrics(mc_results)
+            
+            if risk_metrics:
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("VaR (5%)", f"${risk_metrics.get('VaR_5%', 0):,.0f}")
+                    st.metric("Expected Shortfall (5%)", f"${risk_metrics.get('Expected_Shortfall_5%', 0):,.0f}")
+                    st.metric("Sharpe Ratio", f"{risk_metrics.get('Sharpe_Ratio', 0):.2f}")
+                
+                with col2:
+                    st.metric("VaR (1%)", f"${risk_metrics.get('VaR_1%', 0):,.0f}")
+                    st.metric("Expected Shortfall (1%)", f"${risk_metrics.get('Expected_Shortfall_1%', 0):,.0f}")
+                    st.metric("Sortino Ratio", f"{risk_metrics.get('Sortino_Ratio', 0):.2f}")
+                
+                with col3:
+                    st.metric("Upside Potential (5%)", f"${risk_metrics.get('Upside_Potential_5%', 0):,.0f}")
+                    st.metric("Best Case Avg (5%)", f"${risk_metrics.get('Best_Case_Avg_5%', 0):,.0f}")
+                    st.metric("Upside Potential (1%)", f"${risk_metrics.get('Upside_Potential_1%', 0):,.0f}")
+                
+                st.write("**Risk Metrics Explanation:**")
+                st.write("- **VaR (Value at Risk)**: Maximum expected loss at given confidence level")
+                st.write("- **Expected Shortfall**: Average loss in worst-case scenarios")
+                st.write("- **Upside Potential**: Maximum expected gain at given confidence level")
+                st.write("- **Sharpe Ratio**: Risk-adjusted return (higher is better)")
+                st.write("- **Sortino Ratio**: Risk-adjusted return considering only downside risk")
+        else:
+            st.warning("Please run Monte Carlo simulation first to see risk metrics.")
+    
+    with risk_tab2:
+        st.write("**Tornado Chart - Multi-Variable Sensitivity Analysis**")
+        st.write("Shows which variables have the biggest impact on your final cash flow:")
+        
+        if st.button("Generate Tornado Chart", type="primary"):
+            with st.spinner("Generating tornado chart..."):
+                tornado_data = model.create_tornado_chart_data(assumptions)
+                
+                # Create tornado chart
+                fig_tornado = go.Figure()
+                
+                # Add bars for each variable
+                for _, row in tornado_data.iterrows():
+                    variable = row['Variable']
+                    low_impact = row['Low_Impact_%']
+                    high_impact = row['High_Impact_%']
+                    
+                    # Add low scenario bar
+                    fig_tornado.add_trace(go.Bar(
+                        y=[variable],
+                        x=[low_impact],
+                        name='Low Scenario',
+                        orientation='h',
+                        marker_color='red',
+                        showlegend=False
+                    ))
+                    
+                    # Add high scenario bar
+                    fig_tornado.add_trace(go.Bar(
+                        y=[variable],
+                        x=[high_impact],
+                        name='High Scenario',
+                        orientation='h',
+                        marker_color='green',
+                        showlegend=False
+                    ))
+                
+                fig_tornado.update_layout(
+                    title="Tornado Chart - Impact on Final Cash Flow",
+                    xaxis_title="Impact on Final Cash Flow (%)",
+                    yaxis_title="Variables",
+                    barmode='overlay',
+                    height=400
+                )
+                
+                st.plotly_chart(fig_tornado, use_container_width=True)
+                
+                # Display tornado data table
+                st.write("**Detailed Impact Analysis:**")
+                display_tornado = tornado_data.copy()
+                for col in ['Low_Impact_%', 'High_Impact_%', 'Max_Impact_%']:
+                    display_tornado[col] = display_tornado[col].apply(lambda x: f"{x:.1f}%")
+                st.dataframe(display_tornado, use_container_width=True)
+    
+    with risk_tab3:
+        st.write("**Stress Testing - Extreme Scenario Analysis**")
+        st.write("Tests your business model against extreme market conditions:")
+        
+        if st.button("Run Stress Tests", type="primary"):
+            with st.spinner("Running stress tests..."):
+                stress_results = model.run_stress_test(assumptions)
+                
+                # Display stress test results
+                stress_data = []
+                for scenario, results in stress_results.items():
+                    stress_data.append({
+                        'Scenario': scenario.replace('_', ' '),
+                        'Final Cash Flow': results['final_cash_flow'],
+                        'Final AUA': results['final_aua'],
+                        'Breakeven Month': results['breakeven_month'],
+                        'Year 1 Revenue': results['year1_revenue'],
+                        'Survives': 'Yes' if results['survival_probability'] == 1 else 'No'
+                    })
+                
+                stress_df = pd.DataFrame(stress_data)
+                
+                # Format display
+                display_stress = stress_df.copy()
+                for col in ['Final Cash Flow', 'Final AUA', 'Year 1 Revenue']:
+                    display_stress[col] = display_stress[col].apply(lambda x: f"${x:,.0f}")
+                
+                st.dataframe(display_stress, use_container_width=True)
+                
+                # Create stress test visualization
+                fig_stress = go.Figure()
+                
+                scenarios = stress_df['Scenario']
+                # Ensure cash_flows is numeric
+                if pd.api.types.is_numeric_dtype(stress_df['Final Cash Flow']):
+                    cash_flows = stress_df['Final Cash Flow'].astype(float)
+                else:
+                    cash_flows = stress_df['Final Cash Flow'].astype(str).str.replace('$', '').str.replace(',', '').astype(float)
+                
+                colors = ['red' if cf < 0 else 'green' for cf in cash_flows]
+                
+                fig_stress.add_trace(go.Bar(
+                    x=scenarios,
+                    y=cash_flows,
+                    marker_color=colors,
+                    text=[f"${cf:,.0f}" for cf in cash_flows],
+                    textposition='auto'
+                ))
+                
+                fig_stress.add_hline(y=0, line_dash="dash", line_color="black", 
+                                   annotation_text="Breakeven Line")
+                
+                fig_stress.update_layout(
+                    title="Stress Test Results - Final Cash Flow",
+                    xaxis_title="Stress Scenario",
+                    yaxis_title="Final Cash Flow ($)",
+                    height=400
+                )
+                
+                st.plotly_chart(fig_stress, use_container_width=True)
+    
+    with risk_tab4:
+        st.write("**Scenario-Based Monte Carlo Simulation**")
+        st.write("Monte Carlo with different probability distributions for different market conditions:")
+        
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            n_scenario_sims = st.number_input(
+                "Number of Scenario Simulations", 
+                min_value=100, max_value=5000, value=1000, step=100
+            )
+            
+            if st.button("Run Scenario Monte Carlo", type="primary"):
+                with st.spinner("Running scenario-based Monte Carlo..."):
+                    scenario_results = model.run_scenario_based_monte_carlo(assumptions, n_scenario_sims)
+                    st.session_state.scenario_results = scenario_results
+        
+        with col2:
+            if 'scenario_results' in st.session_state:
+                scenario_results = st.session_state.scenario_results
+                
+                # Display scenario breakdown
+                st.write("**Market Scenario Distribution:**")
+                scenario_breakdown = scenario_results['scenario_breakdown']
+                total_sims = sum(scenario_breakdown.values())
+                
+                col_a, col_b, col_c = st.columns(3)
+                with col_a:
+                    bull_pct = (scenario_breakdown['Bull_Market'] / total_sims) * 100
+                    st.metric("Bull Market", f"{bull_pct:.1f}%")
+                with col_b:
+                    normal_pct = (scenario_breakdown['Normal_Market'] / total_sims) * 100
+                    st.metric("Normal Market", f"{normal_pct:.1f}%")
+                with col_c:
+                    bear_pct = (scenario_breakdown['Bear_Market'] / total_sims) * 100
+                    st.metric("Bear Market", f"{bear_pct:.1f}%")
+                
+                # Calculate and display scenario-based summary stats
+                if scenario_results.get('final_cash_flow'):
+                    scenario_summary = model.calculate_monte_carlo_summary_stats(scenario_results)
+                    st.write("**Scenario-Based Summary Statistics:**")
+                    st.dataframe(scenario_summary, use_container_width=True)
 
 def create_scenario_analysis(assumptions):
     """Create scenario analysis with different assumptions"""
@@ -602,8 +877,8 @@ def main():
     display_dashboard(results, assumptions)
     
     # Create tabs for different sections
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📈 Charts", "📊 Monthly Data", "🔄 Scenarios", "🎲 Monte Carlo", "📊 Sensitivity"
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📈 Charts", "📊 Monthly Data", "🔄 Scenarios", "🎲 Monte Carlo", "📊 Sensitivity", "🚨 Advanced Risk"
     ])
     
     with tab1:
@@ -620,6 +895,9 @@ def main():
     
     with tab5:
         create_sensitivity_analysis(assumptions)
+    
+    with tab6:
+        create_advanced_risk_analysis(assumptions)
     
     # Footer
     st.markdown("---")
